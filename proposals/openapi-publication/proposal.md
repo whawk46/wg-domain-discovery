@@ -79,11 +79,17 @@ The publisher exposes `/.well-known/x402` as JSON with `Content-Type: applicatio
 | Field | Type | Definition |
 | --- | --- | --- |
 | `x402Version` | Integer | Required; `2`. The x402 protocol version that applies to the linked annotations. |
-| `openapi` | Array of URL strings | Required and nonempty. Each URL identifies a final OpenAPI 3.1 description. |
+| `openapi` | String or Array of URL strings | Pointer to final OpenAPI 3.1 descriptions. May be a single URL string or a nonempty array of URL strings. When a single string is provided, clients treat it as a single-element list `[openapi]`. Required unless another discovery carrier (such as `resources`) is present. |
 
 The entry contains document locations. Operation definitions, authentication, prices, and payment options belong in the linked OpenAPI descriptions.
 
 Clients MUST ignore entry members they do not recognize. This keeps the entry extensible without a new version for each added field.
+
+### Coexistence of document shapes at `/.well-known/x402`
+
+A host's `/.well-known/x402` entry may carry multiple complementary discovery carriers. For example, an entry may publish `openapi` (pointing to OpenAPI descriptions) alongside `resources` (an array declaring static resource pricing, as deployed across production hosts).
+
+These document shapes are not disjoint. A client searching for OpenAPI descriptions consumes `openapi` and ignores `resources`. Conversely, a client indexing direct resource manifests consumes `resources` and ignores `openapi`. Clients MUST NOT treat the presence of additional discovery keys as a format error.
 
 The path follows RFC 8615 and would be registered in the IANA Well-Known URIs registry as `x402`. Like `openid-configuration` and `oauth-authorization-server`, it carries no file extension; `Content-Type` identifies the format.
 

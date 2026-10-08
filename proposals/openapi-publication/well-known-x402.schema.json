@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "x402 Well-Known Discovery Entry",
+  "description": "Schema for the /.well-known/x402 discovery entry supporting single/array OpenAPI pointers, dual-shape coexistence, and forward extensibility.",
+  "type": "object",
+  "required": ["x402Version"],
+  "properties": {
+    "x402Version": {
+      "type": "integer",
+      "const": 2,
+      "description": "The x402 protocol version that applies to the linked descriptions."
+    },
+    "openapi": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      ],
+      "description": "URL or list of URLs pointing to final OpenAPI descriptions."
+    },
+    "resources": {
+      "type": "array",
+      "description": "Resource manifest declarations (x402 PR #2979)."
+    }
+  },
+  "anyOf": [
+    { "required": ["openapi"] },
+    { "required": ["resources"] }
+  ]
+}

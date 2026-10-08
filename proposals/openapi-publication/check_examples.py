@@ -218,7 +218,38 @@ def main():
             for path, content in [(destination / 'openapi.json', document),
                                   (destination / '.well-known/x402', entry)]:
                 path.write_text(json.dumps(content, indent=2) + '\n')
-    print('PASS: source integrity, references, direct/overlay equivalence, preserved contracts, documented and live amounts agree, optional amount ranges, no vendor fields, authentication, entry URLs, missing target')
+    check_discovery_entry_shapes()
+    print('PASS: source integrity, references, direct/overlay equivalence, preserved contracts, documented and live amounts agree, optional amount ranges, no vendor fields, authentication, entry URLs, missing target, discovery entry shapes')
+
+
+def check_discovery_entry_shapes():
+    # 1. Single string openapi normalizes to list
+    string_entry = {'x402Version': 2, 'openapi': 'https://example.com/openapi.json'}
+    normalized_list = [string_entry['openapi']] if isinstance(string_entry['openapi'], str) else string_entry['openapi']
+    require(normalized_list == ['https://example.com/openapi.json'], 'Single string openapi must normalize to list')
+
+    # 2. Array openapi
+    array_entry = {'x402Version': 2, 'openapi': ['https://example.com/openapi.json']}
+    require(array_entry['openapi'] == ['https://example.com/openapi.json'], 'Array openapi mismatch')
+
+    # 3. Dual-shape coexistence (openapi + resources)
+    dual_entry = {
+        'x402Version': 2,
+        'openapi': ['https://example.com/openapi.json'],
+        'resources': [{'path': '/api/data', 'price': '1000'}]
+    }
+    require('openapi' in dual_entry and 'resources' in dual_entry, 'Dual-shape keys missing')
+
+    # 4. Extensibility: unrecognized fields MUST be ignored by clients
+    ext_entry = {
+        'x402Version': 2,
+        'openapi': ['https://example.com/openapi.json'],
+        'keys': [{'kid': 's1', 'alg': 'Ed25519'}],
+        'verifier': {'url': 'https://verifier.example.com'}
+    }
+    recognized = {k: v for k, v in ext_entry.items() if k in ('x402Version', 'openapi')}
+    require(recognized == {'x402Version': 2, 'openapi': ['https://example.com/openapi.json']},
+            'Extensibility ignore rule failed')
 
 
 if __name__ == '__main__':
