@@ -7,6 +7,11 @@ import json
 from pathlib import Path
 import re
 
+try:
+    import jsonschema
+except ImportError:
+    jsonschema = None
+
 ROOT = Path(__file__).resolve().parent
 EXAMPLES = ROOT / 'examples'
 TRAVEL_PATH = '/api/seats-aero/routes'
@@ -190,8 +195,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--write', action='store_true', help='Refresh tracked final examples and write publication artifacts to build/')
     args = parser.parse_args()
+    discovery_schema = json.loads((ROOT / 'well-known-x402.schema.json').read_text())
     for service, document in build().items():
         entry = read(service + '.well-known.json')
+        if jsonschema is not None:
+            jsonschema.validate(instance=entry, schema=discovery_schema)
         origin = document['servers'][0]['url']
         require(entry == {'x402Version': 2, 'openapi': [origin + '/openapi.json']},
                 'Incorrect entry or URL')
@@ -219,10 +227,14 @@ def main():
                                   (destination / '.well-known/x402', entry)]:
                 path.write_text(json.dumps(content, indent=2) + '\n')
     check_discovery_entry_shapes()
-    print('PASS: source integrity, references, direct/overlay equivalence, preserved contracts, documented and live amounts agree, optional amount ranges, no vendor fields, authentication, entry URLs, missing target, discovery entry shapes')
+    print('PASS: source integrity, references, direct/overlay equivalence, preserved contracts, documented and live amounts agree, optional amount ranges, no vendor fields, authentication, entry URLs, missing target, discovery entry shapes, schema validation')
 
 
 def check_discovery_entry_shapes():
+    schema_path = ROOT / 'well-known-x402.schema.json'
+    require(schema_path.exists(), 'Missing well-known-x402.schema.json')
+    schema = json.loads(schema_path.read_text())
+
     # 1. Single string openapi normalizes to list
     string_entry = {'x402Version': 2, 'openapi': 'https://example.com/openapi.json'}
     normalized_list = [string_entry['openapi']] if isinstance(string_entry['openapi'], str) else string_entry['openapi']
@@ -250,6 +262,36 @@ def check_discovery_entry_shapes():
     recognized = {k: v for k, v in ext_entry.items() if k in ('x402Version', 'openapi')}
     require(recognized == {'x402Version': 2, 'openapi': ['https://example.com/openapi.json']},
             'Extensibility ignore rule failed')
+
+    # 5. Schema validation: all valid shapes must pass well-known-x402.schema.json
+    require(jsonschema is not None, 'jsonschema package required to validate discovery entry schemas')
+    valid_cases = [
+        string_entry,
+        array_entry,
+        dual_entry,
+        ext_entry,
+        {'x402Version': 2, 'openapi': 'https://example.com/openapi.json', 'resources': [{'path': '/api/data'}]},
+        {'x402Version': 2, 'resources': [{'path': '/api/data'}]},
+    ]
+    for case in valid_cases:
+        jsonschema.validate(instance=case, schema=schema)
+
+    # 6. Negative schema tests: invalid discovery shapes must be rejected
+    invalid_cases = [
+        {},  # missing required x402Version and carrier
+        {'openapi': 'https://example.com/openapi.json'},  # missing x402Version
+        {'x402Version': 1, 'openapi': 'https://example.com/openapi.json'},  # unsupported version
+        {'x402Version': 2},  # missing both openapi and resources carrier
+        {'x402Version': 2, 'openapi': []},  # empty openapi array
+        {'x402Version': 2, 'openapi': 123},  # non-string / non-array openapi
+    ]
+    for invalid in invalid_cases:
+        try:
+            jsonschema.validate(instance=invalid, schema=schema)
+        except jsonschema.ValidationError:
+            pass
+        else:
+            raise ValueError('Schema accepted invalid discovery entry: ' + json.dumps(invalid))
 
 
 if __name__ == '__main__':
