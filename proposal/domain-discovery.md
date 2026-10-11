@@ -12,31 +12,67 @@
 
 Autonomous AI agents and automated HTTP clients require a fast, deterministic, and cryptographically verifiable mechanism to discover payment requirements and supported settlement rails before invoking monetized web endpoints.
 
-Prior experimental proposals introduced fragmented, multi-lane discovery patterns—forcing clients to download heavy API description documents (such as OpenAPI 3.1 bundles), traverse arbitrary route hierarchies, and parse bespoke vendor extensions (`x-x402`) to extract basic payment terms. Empirical network analysis of 1,521 live hosts revealed that mandatory OpenAPI publication breaks 100% of existing production deployments (0/775 pass rate), while introducing fatal split-brain cache divergence between root domain manifests and external API descriptions.
+Prior exploratory drafts contemplated a "two-lane" discovery pattern—splitting discovery between a minimal root entry and an external OpenAPI 3.1 specification carrying bespoke `x-x402` vendor extensions. Under that model, agents were expected to traverse two parallel discovery paths: reading root metadata in Lane 1, then fetching, parsing, and resolving route-level payment terms inside OpenAPI documents in Lane 2.
 
-This specification defines the authoritative, single-lane **x402 Domain Discovery Standard**. Grounded in IETF RFC 8615, it establishes a lightweight, canonical manifest at `/.well-known/x402` that directly advertises resource endpoints, payment schemes, CAIP-2 blockchain networks, settlement assets, and host-level cryptographic verification keys. OpenAPI descriptions remain fully supported as an optional documentation reference, preserving clean architectural separation between human developer documentation and real-time machine payment negotiation.
+This specification documents why **the two-lane model is fundamentally unworkable in production**, and formally establishes the **Single-Lane Canonical x402 Domain Discovery Standard**. Grounded in IETF RFC 8615, discovery resolves through a single authoritative manifest served at `/.well-known/x402`. It co-locates resource routes, accepted settlement schemes, CAIP-2 blockchain networks, assets, amounts, and cryptographic signing keys in one atomic, cacheable payload. OpenAPI descriptions remain fully supported as an optional, informational documentation link—ensuring human developer documentation never obstructs or complicates autonomous machine payment negotiation.
 
 ---
 
-## 2. Core Architectural Invariants
+## 2. Empirical Analysis: The Failure of the Two-Lane Model vs. Single-Lane Invariants
 
-### 2.1 Single Source of Truth (Zero Split-Brain)
+Extensive conformance testing and empirical network data demonstrate why splitting discovery across two lanes fails both architectural and operational requirements:
+
+### 2.1 The Split-Brain Vulnerability & Cache Drift
+In a two-lane architecture, an origin host publishes root metadata at `/.well-known/x402` (Lane 1) and operation-level terms inside an external OpenAPI document via `x-x402` overlays (Lane 2). 
+
+Because these two artifacts are hosted, cached, and invalidated independently, **cache drift is mathematically inevitable**:
+* An origin server may update route pricing or deprecate a payment rail in its backend API carrier.
+* A downstream CDN edge, reverse proxy, or local client cache may continue serving a stale OpenAPI JSON bundle for hours or days.
+* As a result, an autonomous agent resolving terms via Lane 2 constructs a payment payload that the origin server (enforcing Lane 1) rejects with an unexpected HTTP 402 or 400 error. In the worst case, divergent terms lead to irrecoverable payment discrepancies and financial dispute.
+
+**The Single-Lane Resolution**: By enforcing a single manifest at `/.well-known/x402`, payment terms exist in exactly one place. Edge caches revalidate a single atomic document via standard `ETag` and `If-None-Match` HTTP semantics, guaranteeing zero split-brain divergence.
+
+### 2.2 The 0% Production Census Pass Rate
+An empirical census of 1,521 live web hosts evaluated the feasibility of requiring an `openapi` array for discovery:
+* **786 hosts** currently serve an active x402 discovery manifest in production today.
+* **0 out of 775 validated manifests** published a mandatory `openapi` array.
+* Forcing a two-lane OpenAPI dependency breaks 100% of live production hosts on the internet. 
+
+Conversely, the single-lane model directly reflects running code across the web, providing 100% immediate backward compatibility with existing deployments while admitting clean forward extensibility.
+
+### 2.3 Prohibitive Agent Latency & Parser Complexity
+Autonomous agents operate on sub-100ms request/response cycles:
+* In a two-lane model, an agent must: (1) fetch the root manifest, (2) extract the OpenAPI URL, (3) fetch an external 200KB–500KB OpenAPI JSON bundle, (4) parse and recursively resolve `$ref` JSON Pointers across multi-file schemas, and (5) traverse operation paths to locate `x-x402` vendor blocks.
+* This introduces multi-roundtrip network latency, substantial memory consumption, and brittle third-party parsing dependencies into lightweight agent execution runtimes.
+
+**The Single-Lane Resolution**: The canonical manifest is lightweight (<2KB) and self-contained. An agent reads it in a single atomic HTTP GET, evaluates available settlement schemes in sub-millisecond memory lookups, and dispatches the paid request immediately.
+
+### 2.4 Cryptographic Ground Truth & Verification Impossibility
+Under zero-trust execution, an agent must cryptographically verify that the payment requirements it received were signed by the domain owner and not injected by an adversarial proxy or rogue CDN node:
+* In a two-lane architecture, verifying terms requires computing canonical digests across a mutable graph of distributed documents (the root manifest plus all linked OpenAPI documents and external overlays). Any dynamic change or formatting difference breaks the cryptographic signature.
+* In the single-lane architecture, the manifest contains host-level public keys (`keys`) that are directly cross-validated against public DNS TXT records (`_x402key.<domain>`). The manifest is canonically hashed (RFC 8785 JCS) and verified in one self-contained step.
+
+---
+
+## 3. Core Architectural Invariants
+
+### 3.1 Single Source of Truth
 Payment discovery MUST resolve through a single authoritative manifest. Hosts MUST NOT require clients to reconcile conflicting or fragmented pricing terms across disparate endpoints. All runtime parameters necessary for an agent to construct an x402 payment challenge response (scheme, network, asset, and price) are declared directly in the manifest.
 
-### 2.2 Universal Rail Neutrality
+### 3.2 Universal Rail Neutrality
 The discovery specification is transport- and settlement-rail agnostic. All supported blockchain networks are declared using canonical [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md) identifiers (e.g. `eip155:8453`, `eip155:14`, `xrpl:0`, `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`, `algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k`). No single chain, token, or virtual machine is given preferential or hardcoded treatment.
 
-### 2.3 Cryptographic Ground Truth & DNS Binding
+### 3.3 Cryptographic Ground Truth & DNS Binding
 To prevent man-in-the-middle tampering, reverse-proxy spoofing, and edge-cache poisoning, hosts MAY advertise cryptographic public signing keys (`keys`) within the manifest. Clients verify manifest authenticity against authoritative public DNS TXT ground truth records published at `_x402key.<domain>`.
 
-### 2.4 Sub-Millisecond Agent Resolution
+### 3.4 Sub-Millisecond Agent Resolution
 Autonomous agents operate on tight latency budgets. A canonical `/.well-known/x402` manifest is designed to be lean (<2KB), fully cacheable via standard HTTP semantics (`Cache-Control`, `ETag`), and parsed in a single atomic read with zero external document traversal required.
 
 ---
 
-## 3. Specification
+## 4. Specification
 
-### 3.1 Well-Known Entry Point
+### 4.1 Well-Known Entry Point
 The host exposes its discovery manifest at the well-known URI:
 ```http
 GET /.well-known/x402 HTTP/1.1
@@ -47,7 +83,7 @@ Host: example.com
 * **Content-Type**: The response MUST be served with `Content-Type: application/json`.
 * **Path Registration**: The path complies with RFC 8615 under the IANA Well-Known URIs registry as `x402`.
 
-### 3.2 Manifest Schema Definition
+### 4.2 Manifest Schema Definition
 
 A compliant discovery manifest is a JSON object carrying the following properties:
 
@@ -62,7 +98,7 @@ A compliant discovery manifest is a JSON object carrying the following propertie
 
 Clients MUST ignore any unrecognized members. This guarantees forward compatibility across minor specification revisions.
 
-### 3.3 Resource Object (`resources[]`)
+### 4.3 Resource Object (`resources[]`)
 
 Each entry in the `resources` array defines a monetized endpoint or service route:
 
@@ -73,7 +109,7 @@ Each entry in the `resources` array defines a monetized endpoint or service rout
 | `description` | `string` | **OPTIONAL** | Human/agent readable summary of the resource capabilities. |
 | `methods` | `array of strings` | **OPTIONAL** | Applicable HTTP methods (`["GET", "POST", ...]`). If omitted, applies to all methods. |
 
-### 3.4 Payment Option Object (`accepts[]`)
+### 4.4 Payment Option Object (`accepts[]`)
 
 Each payment option specifies an accepted settlement vehicle:
 
@@ -88,7 +124,7 @@ Each payment option specifies an accepted settlement vehicle:
 | `recipient` | `string` | **OPTIONAL** | Destination payout address or account. |
 | `extra` | `object` | **OPTIONAL** | Scheme-specific parameters (e.g. ledger timeout tolerances, memo hints). |
 
-### 3.5 Cryptographic Verification Key Object (`keys[]`)
+### 4.5 Cryptographic Verification Key Object (`keys[]`)
 
 When manifest verification or challenge authentication is enforced:
 
@@ -100,7 +136,7 @@ When manifest verification or challenge authentication is enforced:
 
 ---
 
-## 4. Discovery Flow for Autonomous Agents
+## 5. Discovery Flow for Autonomous Agents
 
 ```
 +------------------+         1. GET /.well-known/x402          +------------------+
@@ -127,9 +163,9 @@ When manifest verification or challenge authentication is enforced:
 
 ---
 
-## 5. Security & Verification Considerations
+## 6. Security & Verification Considerations
 
-### 5.1 DNS Ground Truth Cross-Validation
+### 6.1 DNS Ground Truth Cross-Validation
 To verify that a discovery manifest has not been modified by an intermediary CDN edge or caching proxy:
 1. The client inspects the manifest `keys` array for key identifier `kid`.
 2. The client resolves the DNS TXT record for `_x402key.<domain>`:
@@ -138,7 +174,7 @@ To verify that a discovery manifest has not been modified by an intermediary CDN
    ```
 3. The client verifies that the public key declared in the HTTP manifest matches the public key anchored in authoritative DNS.
 
-### 5.2 Cache Control & Freshness
+### 6.2 Cache Control & Freshness
 Hosts SHOULD serve `/.well-known/x402` with appropriate HTTP caching headers:
 * `Cache-Control: public, max-age=300, stale-while-revalidate=60`
 * `ETag: "<canonical-jcs-hash>"`
@@ -147,7 +183,7 @@ Clients MUST honor standard HTTP cache revalidation semantics (`If-None-Match`),
 
 ---
 
-## 6. Conformance & Test Suite
+## 7. Conformance & Test Suite
 
 The proposal is accompanied by a formal JSON schema and automated validation test harness:
 
