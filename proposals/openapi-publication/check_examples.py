@@ -284,6 +284,7 @@ def check_discovery_entry_shapes():
         {'x402Version': 2},  # missing both openapi and resources carrier
         {'x402Version': 2, 'openapi': []},  # empty openapi array
         {'x402Version': 2, 'openapi': 123},  # non-string / non-array openapi
+        {'x402Version': 2, 'carrier': {'openapi': 'https://example.com/openapi.json'}},  # carrier key one level off (minia2auk case)
     ]
     for invalid in invalid_cases:
         try:
