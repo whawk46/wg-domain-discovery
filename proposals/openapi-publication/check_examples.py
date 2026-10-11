@@ -277,22 +277,23 @@ def check_discovery_entry_shapes():
         jsonschema.validate(instance=case, schema=schema)
 
     # 6. Negative schema tests: invalid discovery shapes must be rejected
-    invalid_cases = [
-        {},  # missing required x402Version and carrier
-        {'openapi': 'https://example.com/openapi.json'},  # missing x402Version
-        {'x402Version': 1, 'openapi': 'https://example.com/openapi.json'},  # unsupported version
-        {'x402Version': 2},  # missing both openapi and resources carrier
-        {'x402Version': 2, 'openapi': []},  # empty openapi array
-        {'x402Version': 2, 'openapi': 123},  # non-string / non-array openapi
-        {'x402Version': 2, 'carrier': {'openapi': 'https://example.com/openapi.json'}},  # carrier key one level off (minia2auk case)
-    ]
-    for invalid in invalid_cases:
+    # Named fixtures explicitly matching Working Group conformance suite
+    negative_fixtures = {
+        'negative_missing_required': {'openapi': 'https://example.com/openapi.json'},  # drops required x402Version
+        'negative_misplaced_carrier': {'x402Version': 2, 'carrier': {'openapi': 'https://example.com/openapi.json'}},  # carrier key one level off
+        'negative_empty_document': {},  # missing required x402Version and carrier
+        'negative_unsupported_version': {'x402Version': 1, 'openapi': 'https://example.com/openapi.json'},  # unsupported version
+        'negative_missing_both_carriers': {'x402Version': 2},  # missing both openapi and resources carrier
+        'negative_empty_carrier_array': {'x402Version': 2, 'openapi': []},  # empty openapi array
+        'negative_malformed_carrier_type': {'x402Version': 2, 'openapi': 123},  # non-string / non-array openapi
+    }
+    for fixture_name, invalid in negative_fixtures.items():
         try:
             jsonschema.validate(instance=invalid, schema=schema)
         except jsonschema.ValidationError:
             pass
         else:
-            raise ValueError('Schema accepted invalid discovery entry: ' + json.dumps(invalid))
+            raise ValueError(f"Schema accepted invalid discovery entry ({fixture_name}): {json.dumps(invalid)}")
 
 
 if __name__ == '__main__':
