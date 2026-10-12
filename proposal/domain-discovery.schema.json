@@ -40,14 +40,18 @@
       "type": "array",
       "description": "Host-level cryptographic public keys for manifest and challenge signature verification.",
       "items": {
-        "$ref": "#/$defs/verificationKey"
+        "$ref": "#/definitions/verificationKey"
       }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Optional container for experimental, forward-compatible, or vendor-specific extension payloads without violating root schema determinism."
     },
     "resources": {
       "type": "array",
       "description": "Payment-enabled endpoints and services served by this host.",
       "items": {
-        "$ref": "#/$defs/resourceEndpoint"
+        "$ref": "#/definitions/resourceEndpoint"
       }
     },
     "openapi": {
@@ -71,26 +75,30 @@
   "anyOf": [
     {
       "required": ["resources"],
-      "description": "Resource servers must declare the resources array."
+      "description": "Resource servers declare the resources array."
     },
     {
       "properties": {
         "kind": {
           "oneOf": [
-            { "const": "facilitator" },
+            { "enum": ["facilitator", "both"] },
             {
               "type": "array",
-              "contains": { "const": "facilitator" }
+              "contains": { "enum": ["facilitator", "both"] }
             }
           ]
         }
       },
       "required": ["kind"],
-      "description": "Hosts acting as standalone facilitators may omit the resources array."
+      "description": "Hosts acting as standalone or hybrid facilitators may omit the resources array."
+    },
+    {
+      "required": ["openapi"],
+      "description": "Hosts declaring OpenAPI documentation pointers during the migration phase."
     }
   ],
   "additionalProperties": false,
-  "$defs": {
+  "definitions": {
     "atomicAmount": {
       "type": "string",
       "pattern": "^[0-9]+$",
@@ -136,7 +144,7 @@
         },
         "network": {
           "type": "string",
-          "pattern": "^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,64}$",
+          "pattern": "^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,32}$",
           "description": "Canonical CAIP-2 blockchain network identifier."
         },
         "asset": {
@@ -145,13 +153,13 @@
           "description": "Settlement asset contract address, currency code, or native symbol."
         },
         "amount": {
-          "$ref": "#/$defs/atomicAmount"
+          "$ref": "#/definitions/atomicAmount"
         },
         "minAmount": {
-          "$ref": "#/$defs/atomicAmount"
+          "$ref": "#/definitions/atomicAmount"
         },
         "maxAmount": {
-          "$ref": "#/$defs/atomicAmount"
+          "$ref": "#/definitions/atomicAmount"
         },
         "recipient": {
           "type": "string",
@@ -195,7 +203,7 @@
           "minItems": 1,
           "description": "Supported payment options for this endpoint.",
           "items": {
-            "$ref": "#/$defs/paymentOption"
+            "$ref": "#/definitions/paymentOption"
           }
         }
       },

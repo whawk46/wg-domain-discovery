@@ -91,12 +91,13 @@ A compliant discovery manifest is a JSON object carrying the following propertie
 | :--- | :--- | :--- | :--- |
 | `x402Version` | `integer` | **REQUIRED** | Protocol version. MUST be `2`. |
 | `kind` | `string` or `array of strings` | **OPTIONAL** | Role of the host: `"resource-server"`, `"facilitator"`, or `"both"`. Defaults to `["resource-server"]`. |
-| `resources` | `array of objects` | **REQUIRED**\* | List of payment-enabled resource endpoints. (\*Required for resource servers; optional for standalone facilitators). |
+| `resources` | `array of objects` | **REQUIRED**\* | List of payment-enabled resource endpoints. (\*Required for resource servers; optional for standalone/hybrid facilitators or transitional OpenAPI hosts). |
 | `keys` | `array of objects` | **OPTIONAL** | Host cryptographic public verification keys. |
 | `facilitator` | `string (URI)` | **OPTIONAL** | Canonical URI of an external facilitator used by this resource server. |
-| `openapi` | `string` or `array of strings` | **OPTIONAL** | URI pointing to OpenAPI descriptions for developer documentation. Informational only. |
+| `openapi` | `string` or `array of strings` | **OPTIONAL** | URI pointing to OpenAPI descriptions for developer documentation. Informational pointer; payment discovery resolves via `resources`. |
+| `extensions` | `object` | **OPTIONAL** | Container for experimental, forward-compatible, or vendor-specific extension payloads without violating root schema determinism. |
 
-Clients MUST ignore any unrecognized members. This guarantees forward compatibility across minor specification revisions.
+The manifest schema enforces `additionalProperties: false` at the root to prevent configuration typos, accidental key shadowing, and misplaced payment carriers. Forward-compatible extensions and vendor-specific fields MUST be placed inside the `extensions` property bag. Compliant clients MUST ignore unrecognized fields within `extensions`.
 
 ### 4.3 Resource Object (`resources[]`)
 
@@ -116,7 +117,7 @@ Each payment option specifies an accepted settlement vehicle:
 | Field | Type | Requirement | Description |
 | :--- | :--- | :--- | :--- |
 | `scheme` | `string` | **REQUIRED** | Settlement scheme: `"exact"`, `"upto"`, `"batch-settlement"`, or `"escrow"`. |
-| `network` | `string` | **REQUIRED** | Canonical CAIP-2 identifier (`^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,64}$`). |
+| `network` | `string` | **REQUIRED** | Canonical CAIP-2 identifier (`^[a-z0-9-]{3,8}:[-_a-zA-Z0-9]{1,32}$`). |
 | `asset` | `string` | **OPTIONAL** | Token contract address, native currency symbol, or asset identifier. |
 | `amount` | `string` | **OPTIONAL** | Fixed settlement amount in atomic units (`^[0-9]+$`). |
 | `minAmount` | `string` | **OPTIONAL** | Minimum bounded settlement amount in atomic units (`^[0-9]+$`). |
@@ -194,13 +195,25 @@ The proposal is accompanied by a formal JSON schema and automated validation tes
   * [`examples/multirail-service.well-known-x402.json`](examples/multirail-service.well-known-x402.json)
   * [`examples/facilitator.well-known-x402.json`](examples/facilitator.well-known-x402.json)
   * [`examples/service-with-openapi.well-known-x402.json`](examples/service-with-openapi.well-known-x402.json)
+  * [`examples/bare-openapi.well-known-x402.json`](examples/bare-openapi.well-known-x402.json)
+  * [`examples/hybrid-facilitator.well-known-x402.json`](examples/hybrid-facilitator.well-known-x402.json)
+  * [`examples/forward-extensions.well-known-x402.json`](examples/forward-extensions.well-known-x402.json)
 * **Negative Edge Rejection Fixtures**:
   * `invalid-missing-version.json` (Missing required `x402Version`)
   * `invalid-bad-version.json` (Unsupported protocol version)
   * `invalid-bad-caip2.json` (Malformed CAIP-2 network string)
+  * `invalid-caip2-reference-overflow.json` (CAIP-2 network reference exceeding 32 characters)
   * `invalid-negative-amount.json` (Negative integer string)
   * `invalid-empty-accepts.json` (Empty payment options array)
   * `invalid-misplaced-carrier.json` (Conflicting/misplaced root keys)
   * `invalid-missing-kid.json` (Signing key missing required key ID)
 
 All test cases are verified automatically via `python3 proposal/test_discovery.py` with 100% conformance.
+
+---
+
+## 8. Migration & Interoperability with PR #2
+
+To support seamless working group consensus and interoperability with preceding exploratory drafts (such as PR #2), the schema admits manifests declaring `openapi` without `resources` (e.g. `{"x402Version": 2, "openapi": [...]}`) under its `anyOf` validation rules.
+
+While autonomous payment agents require `resources` for deterministic, zero-dependency payment resolution without secondary network hops, admitting bare `openapi` allows transitional services and documentation-only hosts to validate cleanly. Migrating hosts are encouraged to declare `resources` to unlock automated agent settlement.

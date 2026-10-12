@@ -41,7 +41,10 @@ def run_tests():
         "minimal.well-known-x402.json",
         "multirail-service.well-known-x402.json",
         "facilitator.well-known-x402.json",
-        "service-with-openapi.well-known-x402.json"
+        "service-with-openapi.well-known-x402.json",
+        "bare-openapi.well-known-x402.json",
+        "hybrid-facilitator.well-known-x402.json",
+        "forward-extensions.well-known-x402.json"
     ]
 
     print("\n--- 1. POSITIVE CONFORMANCE TESTS (MUST PASS) ---")
@@ -68,6 +71,7 @@ def run_tests():
         ("invalid-missing-version.json", "required", [], "missing required x402Version"),
         ("invalid-bad-version.json", "enum", ["x402Version"], "unsupported x402Version"),
         ("invalid-bad-caip2.json", "pattern", ["resources", 0, "accepts", 0, "network"], "malformed CAIP-2 network identifier"),
+        ("invalid-caip2-reference-overflow.json", "pattern", ["resources", 0, "accepts", 0, "network"], "CAIP-2 network reference exceeding 32 characters"),
         ("invalid-negative-amount.json", "pattern", ["resources", 0, "accepts", 0, "amount"], "negative amount string"),
         ("invalid-empty-accepts.json", "minItems", ["resources", 0, "accepts"], "empty accepts array"),
         ("invalid-misplaced-carrier.json", "additionalProperties", [], "misplaced carrier key at root"),
