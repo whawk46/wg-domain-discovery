@@ -97,7 +97,7 @@ A compliant discovery manifest is a JSON object carrying the following propertie
 | `openapi` | `string` or `array of strings` | **OPTIONAL** | URI pointing to OpenAPI descriptions for developer documentation. Informational pointer; payment discovery resolves via `resources`. |
 | `extensions` | `object` | **OPTIONAL** | Container for experimental, forward-compatible, or vendor-specific extension payloads without violating root schema determinism. |
 
-The manifest schema enforces `additionalProperties: false` at the root to prevent configuration typos, accidental key shadowing, and misplaced payment carriers. Forward-compatible extensions and vendor-specific fields MUST be placed inside the `extensions` property bag. Compliant clients MUST ignore unrecognized fields within `extensions`.
+The manifest schema enforces `additionalProperties: false` at the root to prevent configuration typos, accidental key shadowing, and misplaced payment carriers. Non-protocol descriptive host metadata (such as `name`, `description`, `stats`, `fee`, `register`, or crawler indices) and forward-compatible extensions MUST be placed inside the `extensions` property bag. Compliant clients MUST ignore unrecognized fields within `extensions`.
 
 ### 4.3 Resource Object (`resources[]`)
 
@@ -212,8 +212,42 @@ All test cases are verified automatically via `python3 proposal/test_discovery.p
 
 ---
 
-## 8. Migration & Interoperability with PR #2
+## 8. Migration, Interoperability & Version Boundaries
 
-To support seamless working group consensus and interoperability with preceding exploratory drafts (such as PR #2), the schema admits manifests declaring `openapi` without `resources` (e.g. `{"x402Version": 2, "openapi": [...]}`) under its `anyOf` validation rules.
+### 8.1 Interoperability with PR #2 (Bare OpenAPI Pointers)
+To support seamless working group consensus and interoperability with preceding exploratory drafts (such as PR #2), the schema admits manifests declaring `openapi` without `resources` (e.g. `{"x402Version": 2, "openapi": [...]}`) under its `anyOf` validation rules. While autonomous payment agents require `resources` for deterministic, zero-dependency payment resolution without secondary network hops, admitting bare `openapi` allows transitional services and documentation-only hosts to validate cleanly. Migrating hosts are encouraged to declare `resources` to unlock automated agent settlement.
 
-While autonomous payment agents require `resources` for deterministic, zero-dependency payment resolution without secondary network hops, admitting bare `openapi` allows transitional services and documentation-only hosts to validate cleanly. Migrating hosts are encouraged to declare `resources` to unlock automated agent settlement.
+### 8.2 The `x402Version: 2` Normative Boundary on Resource Entries
+Incumbent v1 manifests frequently published informal endpoint catalogs using an unstructured entry shape:
+```json
+{
+  "url": "/api/v1/search",
+  "method": "GET",
+  "description": "Historical search endpoint"
+}
+```
+This legacy format functioned strictly as a human/crawler listing; it declared no machine-readable payment terms, forcing clients into speculative execution and reactive HTTP 402 challenge negotiation.
+
+The shift to `resourceEndpoint` in `x402Version: 2` is an **intentional, normative version break**:
+1. **`path` Replaces `url`**: Binds the endpoint strictly relative to the serving origin host, preventing origin-spoofing and cross-domain redirect attacks.
+2. **Mandatory `accepts`**: Requires origins to explicitly declare supported settlement options (`scheme`, CAIP-2 `network`, `asset`, and atomic pricing bounds). Autonomous agents cannot execute pre-flighted payments against endpoints that lack explicit settlement criteria.
+
+Incumbent hosts upgrading to `x402Version: 2` MUST migrate resource entries from `{url, method}` to `{path, accepts}`.
+
+### 8.3 Relocation of Legacy Root Metadata to `extensions`
+Legacy manifests often published ad-hoc, machine-readable crawler fields at the document root (e.g. `name`, `description`, `url`, `fee`, `access`, `register`, `stats`).
+
+To eliminate silent key-shadowing and configuration drift in payment-critical paths, the root schema enforces `additionalProperties: false`. Hosts migrating from legacy schemas MUST relocate descriptive, application-level, or crawler metadata into the reserved `extensions` property bag:
+```json
+{
+  "x402Version": 2,
+  "resources": [ ... ],
+  "extensions": {
+    "name": "Acme Data Service",
+    "description": "High-throughput financial intelligence",
+    "stats": "https://example.com/stats",
+    "register": "https://example.com/register"
+  }
+}
+```
+Compliant clients parse core payment terms from the root while preserving full access to arbitrary host-level metadata within `extensions`.
