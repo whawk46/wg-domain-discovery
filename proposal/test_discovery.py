@@ -63,20 +63,20 @@ def run_tests():
             print(f"[PASS] {filename} (valid)")
             pos_passed += 1
 
-    # 3. Negative Edge Fixture Tests (MUST REJECT)
+    # 3. Negative Edge Fixture Tests (MUST REJECT ON SPECIFIC CONSTRAINT)
     negative_fixtures = [
-        ("invalid-missing-version.json", "missing required x402Version"),
-        ("invalid-bad-version.json", "unsupported x402Version"),
-        ("invalid-bad-caip2.json", "malformed CAIP-2 network identifier"),
-        ("invalid-negative-amount.json", "negative amount string"),
-        ("invalid-empty-accepts.json", "empty accepts array"),
-        ("invalid-misplaced-carrier.json", "misplaced carrier key at root"),
-        ("invalid-missing-kid.json", "signing key missing required kid")
+        ("invalid-missing-version.json", "required", [], "missing required x402Version"),
+        ("invalid-bad-version.json", "enum", ["x402Version"], "unsupported x402Version"),
+        ("invalid-bad-caip2.json", "pattern", ["resources", 0, "accepts", 0, "network"], "malformed CAIP-2 network identifier"),
+        ("invalid-negative-amount.json", "pattern", ["resources", 0, "accepts", 0, "amount"], "negative amount string"),
+        ("invalid-empty-accepts.json", "minItems", ["resources", 0, "accepts"], "empty accepts array"),
+        ("invalid-misplaced-carrier.json", "additionalProperties", [], "misplaced carrier key at root"),
+        ("invalid-missing-kid.json", "required", ["keys", 0], "signing key missing required kid")
     ]
 
-    print("\n--- 2. NEGATIVE EDGE FIXTURE TESTS (MUST REJECT) ---")
+    print("\n--- 2. NEGATIVE EDGE FIXTURE TESTS (MUST REJECT ON SPECIFIC CONSTRAINT) ---")
     neg_passed = 0
-    for filename, expected_cause in negative_fixtures:
+    for filename, expected_validator, expected_path, expected_cause in negative_fixtures:
         filepath = FIXTURES_DIR / filename
         if not filepath.exists():
             print(f"[-] Missing negative test fixture: {filename}")
@@ -88,14 +88,27 @@ def run_tests():
             print(f"[-] CRITICAL FAIL: {filename} was unexpectedly ACCEPTED by schema!")
             print(f"    Expected rejection cause: {expected_cause}")
             sys.exit(1)
-        else:
-            err_msg = errors[0].message
-            err_path = "/".join(str(p) for p in errors[0].path) or "(root)"
-            print(f"[PASS] {filename} correctly rejected: '{err_msg}' at {err_path}")
-            neg_passed += 1
+
+        # Assert the rejection is caused by the specific validator and path, not generic fallout
+        matched = False
+        for err in errors:
+            if err.validator == expected_validator and list(err.path) == expected_path:
+                matched = True
+                err_msg = err.message
+                err_path = "/".join(str(p) for p in err.path) or "(root)"
+                print(f"[PASS] {filename} correctly rejected by '{err.validator}' at {err_path}: '{err_msg}'")
+                neg_passed += 1
+                break
+
+        if not matched:
+            print(f"[-] FAIL: {filename} was rejected, but not by expected validator '{expected_validator}' at {expected_path}")
+            print(f"    Actual errors:")
+            for err in errors:
+                print(f"      - validator='{err.validator}' at path={list(err.path)}: {err.message}")
+            sys.exit(1)
 
     print("\n" + "=" * 70)
-    print(f"TEST SUMMARY: {pos_passed} Positive Passed | {neg_passed} Negative Rejections Verified")
+    print(f"TEST SUMMARY: {pos_passed} Positive Passed | {neg_passed} Negative Rejections Verified (with exact validator assertions)")
     print("ALL TESTS PASSED WITH 100% CONFORMANCE.")
     print("=" * 70)
 
