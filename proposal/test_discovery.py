@@ -10,6 +10,7 @@ Copyright (c) 2026 x402 Foundation contributors.
 import json
 import os
 import sys
+import urllib.parse
 from pathlib import Path
 import jsonschema
 
@@ -17,10 +18,101 @@ BASE_DIR = Path(__file__).resolve().parent
 SCHEMA_FILE = BASE_DIR / "domain-discovery.schema.json"
 EXAMPLES_DIR = BASE_DIR / "examples"
 FIXTURES_DIR = EXAMPLES_DIR / "fixtures"
+MIGRATION_DIR = EXAMPLES_DIR / "migration"
+
+# Root keys the v2 schema admits. Kept explicit so that a schema revision which
+# adds a root key is a deliberate edit here, instead of silently relaxing the
+# §8.3 relocation assertion below.
+V2_ROOT_KEYS = {
+    "x402Version", "kind", "facilitator", "keys", "extensions", "resources", "openapi"
+}
 
 def load_json(file_path: Path):
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+def run_migration_check(validator):
+    """section 8.2/8.3: the incumbent -> v2 rendition must be a deterministic map.
+
+    Returns the number of resource entries checked; exits 1 on any violation.
+
+    The pair is a real incumbent host (76 resources, 24 legacy root keys), not a
+    synthetic minimal. The three properties asserted are the three the section 8
+    revision promises a migrating host can rely on:
+
+      1. the incumbent fails the schema -- it is not a positive example;
+      2. its v2 rendition passes;
+      3. the transition is mechanical: `path` is the incumbent `url`'s path,
+         `method` carries into `methods`, `description` is preserved, and every
+         incumbent root key the schema does not admit lands in `extensions`
+         with its value unchanged.
+    """
+    incumbent_file = MIGRATION_DIR / "incumbent-v1.json"
+    v2_file = MIGRATION_DIR / "incumbent-v2.well-known-x402.json"
+    for path in (incumbent_file, v2_file):
+        if not path.exists():
+            print(f"[-] Missing migration fixture: {path}")
+            sys.exit(1)
+
+    incumbent = load_json(incumbent_file)
+    v2 = load_json(v2_file)
+
+    # (1) The incumbent is invalid -- that is the whole reason a migration exists.
+    inc_errors = list(validator.iter_errors(incumbent))
+    if not inc_errors:
+        print("[-] FAIL: incumbent-v1.json was ACCEPTED by the v2 schema; "
+              "it no longer demonstrates a migration.")
+        sys.exit(1)
+
+    # (2) The v2 rendition is a positive example.
+    v2_errors = list(validator.iter_errors(v2))
+    if v2_errors:
+        print("[-] FAIL: incumbent-v2.well-known-x402.json is not schema-valid:")
+        for err in v2_errors[:10]:
+            print(f"      - {err.validator} at {'/'.join(str(p) for p in err.path)}: {err.message}")
+        sys.exit(1)
+
+    # (3, section 8.3) Root relocation is total and value-preserving.
+    relocated = 0
+    for key, value in incumbent.items():
+        if key == "resources":
+            continue
+        if key in V2_ROOT_KEYS:
+            if v2.get(key) != value:
+                print(f"[-] FAIL: root key '{key}' changed during migration")
+                sys.exit(1)
+        elif v2.get("extensions", {}).get(key) != value:
+            print(f"[-] FAIL: legacy root key '{key}' did not land in extensions unchanged")
+            sys.exit(1)
+        else:
+            relocated += 1
+
+    # (3, section 8.2) Every resource entry maps mechanically, in order.
+    inc_res = incumbent.get("resources", [])
+    v2_res = v2.get("resources", [])
+    if len(inc_res) != len(v2_res):
+        print(f"[-] FAIL: resource count changed {len(inc_res)} -> {len(v2_res)}")
+        sys.exit(1)
+    for i, (before, after) in enumerate(zip(inc_res, v2_res)):
+        want_path = urllib.parse.urlsplit(before.get("url", "")).path
+        if after.get("path") != want_path:
+            print(f"[-] FAIL: entry {i}: path {after.get('path')!r} != url path {want_path!r}")
+            sys.exit(1)
+        if after.get("methods") != [before.get("method")]:
+            print(f"[-] FAIL: entry {i}: methods {after.get('methods')!r} does not carry "
+                  f"method {before.get('method')!r}")
+            sys.exit(1)
+        if before.get("description") and after.get("description") != before.get("description"):
+            print(f"[-] FAIL: entry {i}: description not preserved")
+            sys.exit(1)
+        if not after.get("accepts"):
+            print(f"[-] FAIL: entry {i}: v2 entry has no accepts")
+            sys.exit(1)
+
+    print(f"[PASS] migration: incumbent ({len(inc_errors)} schema error(s)) -> v2 valid; "
+          f"{len(v2_res)} entr(ies) map deterministically (section 8.2), "
+          f"{relocated} legacy root key(s) relocated to extensions (section 8.3)")
+    return len(v2_res)
 
 def run_tests():
     print("=" * 70)
@@ -111,8 +203,13 @@ def run_tests():
                 print(f"      - validator='{err.validator}' at path={list(err.path)}: {err.message}")
             sys.exit(1)
 
+    # 4. Migration Fixture: legacy incumbent -> x402Version 2 rendition
+    print("\n--- 3. MIGRATION FIXTURE (incumbent -> x402Version 2) ---")
+    mig_entries = run_migration_check(validator)
+
     print("\n" + "=" * 70)
-    print(f"TEST SUMMARY: {pos_passed} Positive Passed | {neg_passed} Negative Rejections Verified (with exact validator assertions)")
+    print(f"TEST SUMMARY: {pos_passed} Positive Passed | {neg_passed} Negative Rejections Verified "
+          f"(with exact validator assertions) | {mig_entries} Migration Entr(ies) Verified")
     print("ALL TESTS PASSED WITH 100% CONFORMANCE.")
     print("=" * 70)
 
