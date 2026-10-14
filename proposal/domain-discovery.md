@@ -207,6 +207,9 @@ The proposal is accompanied by a formal JSON schema and automated validation tes
   * `invalid-empty-accepts.json` (Empty payment options array)
   * `invalid-misplaced-carrier.json` (Conflicting/misplaced root keys)
   * `invalid-missing-kid.json` (Signing key missing required key ID)
+* **Migration Conformance Fixture Pair (`§8.2` / `§8.3`)**:
+  * [`examples/migration/incumbent-legacy.json`](examples/migration/incumbent-legacy.json) (Production incumbent manifest with 76 legacy `{url, method, description}` entries and 24 root keys — rejected by schema)
+  * [`examples/migration/incumbent-v2.well-known-x402.json`](examples/migration/incumbent-v2.well-known-x402.json) (Deterministic `x402Version: 2` rendition — verified across all 76 entries and 19 relocated `extensions` keys)
 
 All test cases are verified automatically via `python3 proposal/test_discovery.py` with 100% conformance.
 
@@ -218,7 +221,7 @@ All test cases are verified automatically via `python3 proposal/test_discovery.p
 To support seamless working group consensus and interoperability with preceding exploratory drafts (such as PR #2), the schema admits manifests declaring `openapi` without `resources` (e.g. `{"x402Version": 2, "openapi": [...]}`) under its `anyOf` validation rules. While autonomous payment agents require `resources` for deterministic, zero-dependency payment resolution without secondary network hops, admitting bare `openapi` allows transitional services and documentation-only hosts to validate cleanly. Migrating hosts are encouraged to declare `resources` to unlock automated agent settlement.
 
 ### 8.2 The `x402Version: 2` Normative Boundary on Resource Entries
-Incumbent v1 manifests frequently published informal endpoint catalogs using an unstructured entry shape:
+Incumbent manifests frequently published informal endpoint catalogs using an unstructured entry shape:
 ```json
 {
   "url": "/api/v1/search",
@@ -231,8 +234,9 @@ This legacy format functioned strictly as a human/crawler listing; it declared n
 The shift to `resourceEndpoint` in `x402Version: 2` is an **intentional, normative version break**:
 1. **`path` Replaces `url`**: Binds the endpoint strictly relative to the serving origin host, preventing origin-spoofing and cross-domain redirect attacks.
 2. **Mandatory `accepts`**: Requires origins to explicitly declare supported settlement options (`scheme`, CAIP-2 `network`, `asset`, and atomic pricing bounds). Autonomous agents cannot execute pre-flighted payments against endpoints that lack explicit settlement criteria.
+3. **`x402Version: 2` Literal Alone Is Not a Conformance Signal**: Some incumbent deployments set `"x402Version": 2` at the document root to track the x402 wire protocol version while continuing to serve legacy `{url, method}` resource entries and unadmitted top-level keys. The version literal by itself does not establish schema conformance; such manifests are deterministically rejected by `required: ["path", "accepts"]` on each resource entry and `additionalProperties: false` at the document root.
 
-Incumbent hosts upgrading to `x402Version: 2` MUST migrate resource entries from `{url, method}` to `{path, accepts}`.
+Incumbent hosts upgrading to `x402Version: 2` MUST migrate resource entries from `{url, method}` to `{path, accepts}` (carrying `method` into `methods` when restricting HTTP verbs).
 
 ### 8.3 Relocation of Legacy Root Metadata to `extensions`
 Legacy manifests often published ad-hoc, machine-readable crawler fields at the document root (e.g. `name`, `description`, `url`, `fee`, `access`, `register`, `stats`).

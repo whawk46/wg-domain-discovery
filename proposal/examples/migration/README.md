@@ -5,12 +5,12 @@ the section 8.2 / 8.3 transition is checkable rather than described.
 
 | file | what it is |
 | --- | --- |
-| `incumbent-v1.json` | the incumbent manifest, **verbatim** — as the host serves it at `/.well-known/x402` |
+| `incumbent-legacy.json` | the incumbent manifest, **verbatim** — as the host serves it at `/.well-known/x402` |
 | `incumbent-v2.well-known-x402.json` | the `x402Version: 2` rendition of the same host |
 
 `proposal/test_discovery.py` asserts three things about the pair:
 
-1. `incumbent-v1.json` is **rejected** by `domain-discovery.schema.json` (it is not
+1. `incumbent-legacy.json` is **rejected** by `domain-discovery.schema.json` (it is not
    a positive example);
 2. `incumbent-v2.well-known-x402.json` **passes**;
 3. the transition is **mechanical** — for every entry the `v2` `path` is the

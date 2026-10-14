@@ -47,7 +47,7 @@ def run_migration_check(validator):
          incumbent root key the schema does not admit lands in `extensions`
          with its value unchanged.
     """
-    incumbent_file = MIGRATION_DIR / "incumbent-v1.json"
+    incumbent_file = MIGRATION_DIR / "incumbent-legacy.json"
     v2_file = MIGRATION_DIR / "incumbent-v2.well-known-x402.json"
     for path in (incumbent_file, v2_file):
         if not path.exists():
@@ -60,7 +60,7 @@ def run_migration_check(validator):
     # (1) The incumbent is invalid -- that is the whole reason a migration exists.
     inc_errors = list(validator.iter_errors(incumbent))
     if not inc_errors:
-        print("[-] FAIL: incumbent-v1.json was ACCEPTED by the v2 schema; "
+        print("[-] FAIL: incumbent-legacy.json was ACCEPTED by the v2 schema; "
               "it no longer demonstrates a migration.")
         sys.exit(1)
 
