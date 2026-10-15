@@ -32,13 +32,12 @@ Because these two artifacts are hosted, cached, and invalidated independently, *
 
 **The Single-Lane Resolution**: By enforcing a single manifest at `/.well-known/x402`, payment terms exist in exactly one place. Edge caches revalidate a single atomic document via standard `ETag` and `If-None-Match` HTTP semantics, guaranteeing zero split-brain divergence.
 
-### 2.2 The 0% Production Census Pass Rate
-An empirical census of 1,521 live web hosts evaluated the feasibility of requiring an `openapi` array for discovery:
-* **786 hosts** currently serve an active x402 discovery manifest in production today.
-* **0 out of 775 validated manifests** published a mandatory `openapi` array.
-* Forcing a two-lane OpenAPI dependency breaks 100% of live production hosts on the internet. 
+### 2.2 Production Census & Single-Document Topology
+Empirical measurements of live `/.well-known/x402` deployments (`meloliva14/x402-measure`) highlight two distinct realities:
+* **Single-Document `resources` Topology vs. Mandatory `openapi` Arrays**: In the 775-manifest snapshot evaluated against mandatory `openapi` entry rules, **0 out of 775 manifests** published an `openapi` array, whereas **649 out of 775** already used a single-document `resources` array at `/.well-known/x402`.
+* **Intentional `x402Version: 2` Schema Break (§8.2 / §8.3)**: In the 2026-10-14 census (`2d49c52`, 773 JSON responses at `/.well-known/x402`), **758 of 773 documents** carry legacy top-level keys (`version`, `description`, `name`) or informal `{url, method}` resource entries, with **1 of 773** validating unmodified against this specification's strict schema (`additionalProperties: false` and `required: ["path", "accepts"]`).
 
-Conversely, the single-lane model directly reflects running code across the web, providing 100% immediate backward compatibility with existing deployments while admitting clean forward extensibility.
+Accordingly, the single-lane model preserves the established single-document `resources` deployment topology at `/.well-known/x402` while enforcing the intentional, normative `x402Version: 2` schema boundary and migration path specified in §8.2 and §8.3.
 
 ### 2.3 Prohibitive Agent Latency & Parser Complexity
 Autonomous agents operate on sub-100ms request/response cycles:
