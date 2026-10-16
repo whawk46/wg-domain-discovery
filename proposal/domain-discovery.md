@@ -44,7 +44,7 @@ Autonomous agents operate on sub-100ms request/response cycles:
 * In a two-lane model, an agent must: (1) fetch the root manifest, (2) extract the OpenAPI URL, (3) fetch an external 200KB–500KB OpenAPI JSON bundle, (4) parse and recursively resolve `$ref` JSON Pointers across multi-file schemas, and (5) traverse operation paths to locate `x-x402` vendor blocks.
 * This introduces multi-roundtrip network latency, substantial memory consumption, and brittle third-party parsing dependencies into lightweight agent execution runtimes.
 
-**The Single-Lane Resolution**: The canonical manifest is lightweight (<2KB) and self-contained. An agent reads it in a single atomic HTTP GET, evaluates available settlement schemes in sub-millisecond memory lookups, and dispatches the paid request immediately.
+**The Single-Lane Resolution**: The canonical manifest is self-contained (`<2KB` baseline for minimal or facilitator origins, scaling linearly at `~250–500 bytes` of uncompressed JSON per `resources[]` entry—or `~2–3KB` compressed on the wire for a 75-route catalogue). An agent reads it in a single atomic HTTP GET, evaluates available settlement schemes in sub-millisecond memory lookups, and dispatches the paid request immediately.
 
 ### 2.4 Cryptographic Ground Truth & Verification Impossibility
 Under zero-trust execution, an agent must cryptographically verify that the payment requirements it received were signed by the domain owner and not injected by an adversarial proxy or rogue CDN node:
@@ -64,8 +64,8 @@ The discovery specification is transport- and settlement-rail agnostic. All supp
 ### 3.3 Cryptographic Ground Truth & DNS Binding
 To prevent man-in-the-middle tampering, reverse-proxy spoofing, and edge-cache poisoning, hosts MAY advertise cryptographic public signing keys (`keys`) within the manifest. Clients verify manifest authenticity against authoritative public DNS TXT ground truth records published at `_x402key.<domain>`.
 
-### 3.4 Sub-Millisecond Agent Resolution
-Autonomous agents operate on tight latency budgets. A canonical `/.well-known/x402` manifest is designed to be lean (<2KB), fully cacheable via standard HTTP semantics (`Cache-Control`, `ETag`), and parsed in a single atomic read with zero external document traversal required.
+### 3.4 Sub-Millisecond Agent Resolution & Single-Document Scaling
+Autonomous agents operate on tight latency budgets. A canonical `/.well-known/x402` manifest is designed to be lean and self-contained: `<2KB` is the baseline footprint for a minimal origin or `facilitator`-only manifest (`0–4` resources), while multi-route resource-server catalogues scale linearly $O(N)$ within the same single document at roughly `250–500 bytes` of uncompressed JSON per `resources[]` entry (e.g., `~22KB` raw JSON for a 75-resource catalogue, which compresses to `<2.5KB` on the wire under standard HTTP `br` / `gzip` content-encoding, well within a recommended `256KB` uncompressed parser ceiling). Hosts MUST NOT split `resources[]` or `accepts[]` across paginated sub-documents or external per-resource reference URIs; the entire manifest is fully cacheable via standard HTTP semantics (`Cache-Control`, `ETag`) and parsed in a single atomic read with zero external document traversal required.
 
 ---
 
@@ -238,9 +238,13 @@ The shift to `resourceEndpoint` in `x402Version: 2` is an **intentional, normati
 Incumbent hosts upgrading to `x402Version: 2` MUST migrate resource entries from `{url, method}` to `{path, accepts}` (carrying `method` into `methods` when restricting HTTP verbs).
 
 ### 8.3 Relocation of Legacy Root Metadata to `extensions`
-Legacy manifests often published ad-hoc, machine-readable crawler fields at the document root (e.g. `name`, `description`, `url`, `fee`, `access`, `register`, `stats`).
+Legacy manifests often published ad-hoc, machine-readable crawler fields at the document root (e.g. `name`, `description`, `url`, `fee`, `access`, `register`, `stats`), as well as bespoke extension containers under non-standard root key names such as `extra`.
 
-To eliminate silent key-shadowing and configuration drift in payment-critical paths, the root schema enforces `additionalProperties: false`. Hosts migrating from legacy schemas MUST relocate descriptive, application-level, or crawler metadata into the reserved `extensions` property bag:
+To eliminate silent key-shadowing and configuration drift in payment-critical paths, the root schema enforces `additionalProperties: false`. Because a schema validator flags any unadmitted root key identically under `additionalProperties: false`, migrating hosts MUST distinguish three separate root-key cases:
+1. **Bespoke Extension-Bag Key Renames (`extra` $\rightarrow$ `extensions`)**: Legacy manifests carrying a root `"extra": { ... }` object (e.g. `{"tag": ...}`) perform a direct 1:1 root key rename to `"extensions": { ... }` (note that `"extra"` remains an admitted property *inside* individual `accepts[]` objects per §4.4 for scheme-specific parameters).
+2. **Top-Level Descriptive & Crawler Metadata (`name`, `description`, `url`, `docs`, `stats`, `register`, `agentReady`, `generated_at`, `updated`, etc.)**: Relocate into the root `extensions` property bag.
+3. **Misplaced Root Payment Carriers (`payTo`, `networks`, `fee`, `access`)**: MUST NOT be copied into `extensions` to silence root schema rejection; they MUST migrate into per-resource `resources[].accepts[]` objects (`recipient`, `network`, and `amount` / `minAmount` / `maxAmount`).
+
 ```json
 {
   "x402Version": 2,
