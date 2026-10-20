@@ -166,7 +166,7 @@ def run_tests():
         ("invalid-caip2-reference-overflow.json", "pattern", ["resources", 0, "accepts", 0, "network"], "CAIP-2 network reference exceeding 32 characters"),
         ("invalid-negative-amount.json", "pattern", ["resources", 0, "accepts", 0, "amount"], "negative amount string"),
         ("invalid-empty-accepts.json", "minItems", ["resources", 0, "accepts"], "empty accepts array"),
-        ("invalid-misplaced-carrier.json", "additionalProperties", [], "misplaced carrier key at root"),
+        ("invalid-misplaced-carrier.json", "not", [], "misplaced carrier key at root"),
         ("invalid-missing-kid.json", "required", ["keys", 0], "signing key missing required kid")
     ]
 
@@ -202,6 +202,39 @@ def run_tests():
             for err in errors:
                 print(f"      - validator='{err.validator}' at path={list(err.path)}: {err.message}")
             sys.exit(1)
+
+    # 3b. Resource Class Discrimination & Client Root-Key Tolerance Checks (§4.2, §4.3, §8.2, §8.3)
+    print("\n--- 2b. RESOURCE CLASS DISCRIMINATION & ROOT TOLERANCE CHECKS ---")
+    pointer_and_root_manifest = {
+        "x402Version": 2,
+        "name": "Example Pointer Service",
+        "description": "Benign unknown descriptive root keys tolerated by client validation",
+        "resources": [
+            {"url": "https://example.com/x402/proxy/x402-gas", "method": "GET", "description": "Gas prices across 5 chains."},
+            "https://example.com/x402/proxy/x402-find"
+        ]
+    }
+    ptr_errors = list(validator.iter_errors(pointer_and_root_manifest))
+    if ptr_errors:
+        print(f"[-] FAIL: pointerResource + benign root keys rejected: {ptr_errors[0].message}")
+        sys.exit(1)
+    print("[PASS] pointerResource ({url, method, description} + URI string) & benign unknown root keys accepted")
+
+    ambiguous_mixed_entry = {
+        "x402Version": 2,
+        "resources": [
+            {
+                "path": "/api/v1/mixed",
+                "url": "https://example.com/api/v1/mixed",
+                "accepts": [{"scheme": "exact", "network": "eip155:8453", "amount": "100"}]
+            }
+        ]
+    }
+    mix_errors = list(validator.iter_errors(ambiguous_mixed_entry))
+    if not any(e.validator == "additionalProperties" and list(e.path) == ["resources", 0] for e in mix_errors):
+        print("[-] FAIL: overlapping {path, url, accepts} entry was not rejected by resources[0] additionalProperties")
+        sys.exit(1)
+    print("[PASS] ambiguous overlapping {path, url, accepts} entry deterministically rejected by 'additionalProperties' at resources/0")
 
     # 4. Migration Fixture: legacy incumbent -> x402Version 2 rendition
     print("\n--- 3. MIGRATION FIXTURE (incumbent -> x402Version 2) ---")

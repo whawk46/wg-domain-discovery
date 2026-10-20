@@ -72,6 +72,16 @@
       ]
     }
   },
+  "not": {
+    "anyOf": [
+      { "required": ["accepts"] },
+      { "required": ["payTo"] },
+      { "required": ["networks"] },
+      { "required": ["fee"] },
+      { "required": ["access"] }
+    ],
+    "description": "Payment carriers MUST be declared per-resource inside resources[].accepts[], never at the document root."
+  },
   "anyOf": [
     {
       "required": ["resources"],
@@ -97,7 +107,7 @@
       "description": "Hosts declaring OpenAPI documentation pointers during the migration phase."
     }
   ],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "definitions": {
     "atomicAmount": {
       "type": "string",
@@ -172,8 +182,9 @@
       },
       "additionalProperties": false
     },
-    "resourceEndpoint": {
+    "selfContainedResource": {
       "type": "object",
+      "description": "Self-contained resource entry class: declares relative path and inline accepts[] payment options for single-fetch resolution without preliminary HTTP 402 roundtrips.",
       "required": [
         "path",
         "accepts"
@@ -208,6 +219,66 @@
         }
       },
       "additionalProperties": false
+    },
+    "pointerResource": {
+      "description": "Pointer resource entry class: identifies a monetized endpoint by URL (and optional HTTP verb/description) where payment terms are discovered by fetching the live HTTP 402 challenge at the target URL.",
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "minLength": 1,
+              "description": "Target URL of the monetized resource."
+            },
+            "method": {
+              "type": "string",
+              "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+              "description": "Single HTTP method applicable to the pointer resource."
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "HTTP methods applicable to the pointer resource."
+            },
+            "description": {
+              "type": "string",
+              "description": "Human and agent readable summary of the resource."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "resourceEndpoint": {
+      "description": "Discriminated union of the two conforming resource entry classes: selfContainedResource ({path, accepts}) when 'path' or 'accepts' is present, and pointerResource ({url, method?} or URI string) otherwise. Overlapping shapes (e.g. carrying both path and url) are deterministically rejected.",
+      "if": {
+        "type": "object",
+        "anyOf": [
+          { "required": ["path"] },
+          { "required": ["accepts"] }
+        ]
+      },
+      "then": {
+        "$ref": "#/definitions/selfContainedResource"
+      },
+      "else": {
+        "$ref": "#/definitions/pointerResource"
+      }
     }
   }
 }

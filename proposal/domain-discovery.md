@@ -65,8 +65,8 @@ The discovery specification is transport- and settlement-rail agnostic. All supp
 To prevent man-in-the-middle tampering, reverse-proxy spoofing, and edge-cache poisoning, hosts MAY advertise cryptographic public signing keys (`keys`) within the manifest. Clients verify manifest authenticity against authoritative public DNS TXT ground truth records published at `_x402key.<domain>`.
 
 ### 3.4 Sub-Millisecond Agent Resolution, Compressed-Wire Budgeting & Single Normative Enumeration
-Autonomous agents operate on tight latency budgets. A canonical `/.well-known/x402` manifest is self-contained and governed by three empirical scaling rules:
-1. **Per-Entry Scaling & Field-Set Bounds**: `<2KB` is the baseline footprint for a minimal origin or `facilitator`-only manifest (`0–4` resources). Multi-route resource-server catalogues scale linearly $O(N)$ within the same single document: route-level metadata (`path`, `methods`, `description`) accounts for `~150–215 bytes/entry` raw, rising to `~250–500 bytes/entry` raw when per-entry `accepts[]` objects (`scheme`, `network`, `asset`, `amount`/`maxAmount`, `recipient`) are inlined. Because per-route `path` and `description` values are unique high-entropy strings, per-route arrays compress at **`~3.7–3.9x` under `gzip -9`** (for example, on the 75-route production manifest snapshot at `updated: 2026-10-16T05:19:01Z`, `±0.1%` across daily timestamp refreshes: `11,188 B` raw $\rightarrow$ `3,043 B` `gzip -9` for `resources[]` alone; `15,150 B` raw $\rightarrow$ **`3,739 B` `gzip -9`** for the complete single-enumeration document when pretty-printed with `indent=2`, or `12,578 B` raw $\rightarrow$ **`3,620 B` `gzip -9`** when compact-serialized with `separators=(',',':')`).
+Autonomous agents operate on tight latency budgets. For manifests in the **self-contained** resource class (`{path, accepts}`), a canonical `/.well-known/x402` manifest resolves in a single fetch governed by three empirical scaling rules:
+1. **Per-Entry Scaling & Field-Set Bounds**: `<2KB` is the baseline footprint for a minimal origin or `facilitator`-only manifest (`0–4` resources). Multi-route resource-server catalogues scale linearly $O(N)$ within the same single document: route-level metadata (`path`, `methods`, `description`) accounts for `~150–215 bytes/entry` raw, rising to `~250–500 bytes/entry` raw when per-entry `accepts[]` objects (`scheme`, `network`, `asset`, `amount`/`maxAmount`, `recipient`) are inlined. Because per-route `path` and `description` values are unique high-entropy strings, per-route `resources[]` arrays re-serialized as **compact JSON (`separators=(',', ':')`)** compress at **`~3.6–3.9x` under `gzip -9`** across production content snapshots (for example, on the 75-route production manifest: `11,188 B` raw $\rightarrow$ `3,043 B` `gzip -9` (`3.68x`) at `updated: 2026-10-16T05:19:01Z` and `11,006 B` raw $\rightarrow$ `3,064 B` `gzip -9` (`3.59x`) at `updated: 2026-10-19T05:19:01Z` when compact-serialized with `separators=(',', ':')`, versus `13,559 B` raw $\rightarrow$ `3,118 B` `gzip -9` (`4.35x`) at `updated: 2026-10-19T05:19:01Z` when `resources[]` is measured exactly as served with indentation; for the complete single-enumeration document at `updated: 2026-10-16T05:19:01Z`, `15,150 B` raw $\rightarrow$ **`3,739 B` `gzip -9`** when pretty-printed with `indent=2`, or `12,578 B` raw $\rightarrow$ **`3,620 B` `gzip -9`** when compact-serialized with `separators=(',', ':')`).
 2. **Compressed-Wire Budget vs. Raw-Byte Parser Limit**: Wire budgets are normative in **delivered compressed wire bytes (`<= 64KB` evaluated against the `Content-Encoding` actually delivered over HTTP, or against `gzip -9` when evaluating a static artifact offline)** alongside a `256KB` uncompressed parser safety ceiling. Evaluating against the delivered encoding is required because edge `gzip` and `br` (Brotli) configurations are not identical at small payload sizes, and compressed byte figures vary by `±0.1%` (`±3–5 B`) across same-width timestamp refreshes even when the uncompressed byte length (`35,315 B`) is unchanged (for example, delivering `5,714 B` $\rightarrow$ `5,709 B` under `Accept-Encoding: gzip` and `6,035 B` $\rightarrow$ `6,038 B` under default edge `Accept-Encoding: br` between the `2026-10-16T05:19:01Z` and `2026-10-17T05:19:02Z` snapshots). Expressing the primary operational budget in compressed wire bytes reflects real transport cost: human-readable pretty-printing increases raw size by `~24–25%` on a 75-route manifest (`+6,734 B` to `+7,115 B` raw) but adds **`< 200 B` (`~3%`, `+159 B` to `+196 B` `gzip -9`, `±0.1%`)** on the wire, whereas duplicating a 75-route enumeration increases raw size by `~57%` (`15,150 B` $\rightarrow$ `35,315 B` pretty-printed; `12,578 B` $\rightarrow$ `28,581 B` compact) and compressed wire weight by **`~35%`** (`+2,002 B`, `3,739 B` $\rightarrow$ `5,741 B` pretty-printed; `+1,925 B`, `3,620 B` $\rightarrow$ `5,545 B` compact on the `2026-10-16T05:19:01Z` snapshot, `±0.1%`).
 3. **`resources[]` Is the Single Normative Route Enumeration ($O(N)$, Not $O(2N)$)**: Within `/.well-known/x402`, `resources[]` is the sole normative enumeration of monetized endpoints. Hosts MUST NOT split `resources[]` or `accepts[]` across paginated sub-documents, and SHOULD NOT duplicate a second parallel projection of the same route set (such as legacy `endpoints[]` or `services[]` arrays) inside `/.well-known/x402` or its `extensions` object. Where a host serves a secondary projection for non-x402 consumers (for example, a sibling `/.well-known/x402-service.json`), that projection SHOULD either be derived from `resources[]` or served at its own sibling URI; if retained inside `extensions` during migration, it counts against the `/.well-known/x402` compressed-wire budget.
 
@@ -93,17 +93,20 @@ A compliant discovery manifest is a JSON object carrying the following propertie
 | :--- | :--- | :--- | :--- |
 | `x402Version` | `integer` | **REQUIRED** | Protocol version. MUST be `2`. |
 | `kind` | `string` or `array of strings` | **OPTIONAL** | Role of the host: `"resource-server"`, `"facilitator"`, or `"both"`. Defaults to `["resource-server"]`. |
-| `resources` | `array of objects` | **REQUIRED**\* | List of payment-enabled resource endpoints. (\*Required for resource servers; optional for standalone/hybrid facilitators or transitional OpenAPI hosts). |
+| `resources` | `array of entries` | **REQUIRED**\* | List of payment-enabled resource entries (`selfContainedResource` or `pointerResource`). (\*Required for resource servers; optional for standalone/hybrid facilitators or transitional OpenAPI hosts). |
 | `keys` | `array of objects` | **OPTIONAL** | Host cryptographic public verification keys. |
 | `facilitator` | `string (URI)` | **OPTIONAL** | Canonical URI of an external facilitator used by this resource server. |
 | `openapi` | `string` or `array of strings` | **OPTIONAL** | URI pointing to OpenAPI descriptions for developer documentation. Informational pointer; payment discovery resolves via `resources`. |
 | `extensions` | `object` | **OPTIONAL** | Container for experimental, forward-compatible, or vendor-specific extension payloads without violating root schema determinism. |
 
-The manifest schema enforces `additionalProperties: false` at the root to prevent configuration typos, accidental key shadowing, and misplaced payment carriers. Non-protocol descriptive host metadata (such as `name`, `description`, `stats`, `fee`, `register`, or crawler indices) and forward-compatible extensions MUST be placed inside the `extensions` property bag. Compliant clients MUST ignore unrecognized fields within `extensions`.
+**Client Tolerance of Unknown Root Keys vs. Publisher Strict Lint**: Compliant clients MUST ignore unrecognized descriptive root fields (such as `name`, `description`, `version`, or `contact`), while the schema explicitly forbids misplaced root-level payment carriers (`accepts`, `payTo`, `networks`, `fee`, `access`: `false`) that belong inside per-resource `accepts[]` objects. Publishers SHOULD place non-protocol descriptive metadata and forward-compatible extensions inside the `extensions` property bag, and publisher linters (`test_discovery.py`) enforce the strict root key set (`x402Version`, `kind`, `facilitator`, `keys`, `extensions`, `resources`, `openapi`).
 
-### 4.3 Resource Object (`resources[]`)
+### 4.3 Resource Entry Classes (`resources[]`: `self-contained` vs. `pointer`)
 
-Each entry in the `resources` array defines a monetized endpoint or service route:
+Each entry in `resources[]` belongs to one of two explicitly named, structurally disjoint classes (`oneOf`) that make distinct client guarantees:
+
+#### Class 1: Self-Contained Resource Entry (`selfContainedResource` — `{path, accepts}`)
+A **self-contained** entry declares both the relative endpoint path and its inline `accepts[]` settlement options (`additionalProperties: false`; MUST NOT carry `url`). A single manifest fetch answers path, price, network, asset, and payee (`recipient`), enabling pre-flighted payment resolution (§3) with zero per-route HTTP `402` probe roundtrips:
 
 | Field | Type | Requirement | Description |
 | :--- | :--- | :--- | :--- |
@@ -111,6 +114,9 @@ Each entry in the `resources` array defines a monetized endpoint or service rout
 | `accepts` | `array of objects` | **REQUIRED** | Non-empty list of accepted payment options for this resource. |
 | `description` | `string` | **OPTIONAL** | Human/agent readable summary of the resource capabilities. |
 | `methods` | `array of strings` | **OPTIONAL** | Applicable HTTP methods (`["GET", "POST", ...]`). If omitted, applies to all methods. |
+
+#### Class 2: Pointer Resource Entry (`pointerResource` — `{url, method?}` or URI String)
+A **pointer** entry identifies a monetized endpoint by URL (`{"url": "https://...", "method"?: "GET", "methods"?: [...], "description"?: "..."}` with `additionalProperties: false` so it MUST NOT carry `path` or `accepts`, or a bare URI string). A pointer entry informs the client that the target URL is monetized; to learn the settlement terms (`scheme`, `network`, `asset`, `amount`, `recipient`), the client MUST issue an HTTP request to `url` and parse its live HTTP `402` challenge. Because `selfContainedResource` (requires `path` + `accepts`, forbids `url`) and `pointerResource` (requires `url`, forbids `path` + `accepts`) are mutually exclusive, a client can deterministically classify every entry without ambiguity.
 
 ### 4.4 Payment Option Object (`accepts[]`)
 
@@ -161,8 +167,8 @@ When manifest verification or challenge authentication is enforced:
 
 1. **Cold Discovery**: The agent fetches `https://<domain>/.well-known/x402`.
 2. **Deterministic Evaluation**: The agent parses the single JSON object and filters `resources` for the desired URI path.
-3. **Payment Option Negotiation**: The agent matches its available settlement capabilities (e.g. EVM, Flare, XRPL, Solana, Algorand) against the resource's `accepts` array.
-4. **Execution**: The agent issues the monetized request directly with the corresponding x402 payment payload, eliminating preliminary HTTP 402 challenge roundtrips when pre-flighting is supported.
+3. **Payment Option Negotiation**: For a `self-contained` entry (`{path, accepts}`), the agent matches its available settlement capabilities (e.g. EVM, Flare, XRPL, Solana, Algorand) directly against the resource's inline `accepts` array. For a `pointer` entry (`{url, method?}`), the agent sends a probe request to `url` to retrieve the live HTTP `402` challenge terms.
+4. **Execution**: The agent issues the monetized request with the corresponding x402 payment payload, eliminating preliminary HTTP 402 challenge roundtrips whenever `self-contained` entries are published.
 
 ---
 
@@ -207,11 +213,11 @@ The proposal is accompanied by a formal JSON schema and automated validation tes
   * `invalid-caip2-reference-overflow.json` (CAIP-2 network reference exceeding 32 characters)
   * `invalid-negative-amount.json` (Negative integer string)
   * `invalid-empty-accepts.json` (Empty payment options array)
-  * `invalid-misplaced-carrier.json` (Conflicting/misplaced root keys)
+  * `invalid-misplaced-carrier.json` (Conflicting/misplaced root payment carrier key)
   * `invalid-missing-kid.json` (Signing key missing required key ID)
 * **Migration Conformance Fixture Pair (`§8.2` / `§8.3`)**:
-  * [`examples/migration/incumbent-legacy.json`](examples/migration/incumbent-legacy.json) (Production incumbent manifest with 76 legacy `{url, method, description}` entries and 24 root keys — rejected by schema)
-  * [`examples/migration/incumbent-v2.well-known-x402.json`](examples/migration/incumbent-v2.well-known-x402.json) (Deterministic `x402Version: 2` rendition — verified across all 76 entries and 19 relocated `extensions` keys)
+  * [`examples/migration/incumbent-legacy.json`](examples/migration/incumbent-legacy.json) (Production incumbent manifest with 76 `{url, method, description}` entries and 24 root keys including misplaced root payment carriers `payTo`, `networks`, `fee`, `access` — rejected by schema and publisher lint)
+  * [`examples/migration/incumbent-v2.well-known-x402.json`](examples/migration/incumbent-v2.well-known-x402.json) (Deterministic `x402Version: 2` `self-contained` rendition — verified across all 76 entries and 19 relocated `extensions` keys)
 
 All test cases are verified automatically via `python3 proposal/test_discovery.py` with 100% conformance.
 
@@ -222,32 +228,30 @@ All test cases are verified automatically via `python3 proposal/test_discovery.p
 ### 8.1 Interoperability with PR #2 (Bare OpenAPI Pointers)
 To support seamless working group consensus and interoperability with preceding exploratory drafts (such as PR #2), the schema admits manifests declaring `openapi` without `resources` (e.g. `{"x402Version": 2, "openapi": [...]}`) under its `anyOf` validation rules. While autonomous payment agents require `resources` for deterministic, zero-dependency payment resolution without secondary network hops, admitting bare `openapi` allows transitional services and documentation-only hosts to validate cleanly. Migrating hosts are encouraged to declare `resources` to unlock automated agent settlement.
 
-### 8.2 The `x402Version: 2` Normative Boundary on Resource Entries
-Incumbent manifests frequently published informal endpoint catalogs using an unstructured entry shape:
-```json
-{
-  "url": "/api/v1/search",
-  "method": "GET",
-  "description": "Historical search endpoint"
-}
-```
-This legacy format functioned strictly as a human/crawler listing; it declared no machine-readable payment terms, forcing clients into speculative execution and reactive HTTP 402 challenge negotiation.
+### 8.2 Two Resource Entry Classes (`self-contained` vs. `pointer`) & Guarantee Boundaries
+Deployed `/.well-known/x402` manifests in the ecosystem publish resource entries in two distinct shapes that make different operational promises to a client:
 
-The shift to `resourceEndpoint` in `x402Version: 2` is an **intentional, normative version break**:
-1. **`path` Replaces `url`**: Binds the endpoint strictly relative to the serving origin host, preventing origin-spoofing and cross-domain redirect attacks.
-2. **Mandatory `accepts`**: Requires origins to explicitly declare supported settlement options (`scheme`, CAIP-2 `network`, `asset`, and atomic pricing bounds). Autonomous agents cannot execute pre-flighted payments against endpoints that lack explicit settlement criteria.
-3. **`x402Version: 2` Literal Alone Is Not a Conformance Signal**: Some incumbent deployments set `"x402Version": 2` at the document root to track the x402 wire protocol version while continuing to serve legacy `{url, method}` resource entries and unadmitted top-level keys. The version literal by itself does not establish schema conformance; such manifests are deterministically rejected by `required: ["path", "accepts"]` on each resource entry and `additionalProperties: false` at the document root.
+1. **The `pointer` Class (`pointerResource` — `{url, method?, methods?, description?}` or bare URI string)**:
+   ```json
+   {
+     "url": "https://example.com/api/v1/search",
+     "method": "GET",
+     "description": "Search endpoint (pointer class)"
+   }
+   ```
+   A pointer entry tells the client *that* a target URL is monetized, but omits inline settlement terms. The client must issue an HTTP request to `url` and inspect its live HTTP `402` challenge to discover `scheme`, `network`, `asset`, `amount`, and `recipient`.
+2. **The `self-contained` Class (`selfContainedResource` — `{path, accepts, description?, methods?}`)**:
+   - **`path` Replaces `url`**: Binds the endpoint relative to the serving origin host.
+   - **Mandatory `accepts[]`**: Declares inline settlement options (`scheme`, CAIP-2 `network`, `asset`, atomic pricing bounds, and `recipient`). One manifest fetch answers every parameter required for pre-flighted payment resolution (§3) without per-route HTTP `402` probe roundtrips.
+3. **Mutually Exclusive Discrimination (`oneOf`)**: Both classes are admitted in `resources[]`, but each branch enforces `additionalProperties: false` over its disjoint key set (`path` + `accepts` vs. `url`). An entry carrying both `path` and `url` (or `url` alongside `accepts`) has no deterministic reading and is rejected by schema validation. Naming the two classes explicitly preserves the §3 single-fetch guarantee for `self-contained` manifests rather than weakening it across all entries.
 
-Incumbent hosts upgrading to `x402Version: 2` MUST migrate resource entries from `{url, method}` to `{path, accepts}` (carrying `method` into `methods` when restricting HTTP verbs).
+### 8.3 Client Root-Key Tolerance vs. Publisher Relocation to `extensions` & Avoiding $O(2N)$ Route Duplication
+In empirical ecosystem measurements (`783` active JSON manifests sampled on `2026-10-19` from the `1,521`-host `x402-measure` population), `770` manifests carried unrecognized root keys (`version`, `description`, `name`, `contact`, etc.) while `420` omitted `x402Version`. Because a manifest can fail on multiple rows simultaneously, those counts overlap rather than forming a partition: a v2 manifest carrying a benign root `description` field is not an unmigratable v1 document.
 
-### 8.3 Relocation of Legacy Root Metadata to `extensions` & Avoiding $O(2N)$ Route Duplication
-Legacy manifests often published ad-hoc, machine-readable crawler fields at the document root (e.g. `name`, `description`, `url`, `fee`, `access`, `register`, `stats`), as well as bespoke extension containers under non-standard root key names such as `extra` or secondary route projections (`endpoints`, `services`).
-
-To eliminate silent key-shadowing and configuration drift in payment-critical paths, the root schema enforces `additionalProperties: false`. Because a schema validator flags any unadmitted root key identically under `additionalProperties: false`, migrating hosts MUST distinguish four separate root-key cases:
-1. **Bespoke Extension-Bag Key Renames (`extra` $\rightarrow$ `extensions`)**: Legacy manifests carrying a root `"extra": { ... }` object (e.g. `{"tag": ...}`) perform a direct 1:1 root key rename to `"extensions": { ... }` (note that `"extra"` remains an admitted property *inside* individual `accepts[]` objects per §4.4 for scheme-specific parameters).
-2. **Top-Level Descriptive & Crawler Metadata (`name`, `description`, `url`, `docs`, `stats`, `register`, `agentReady`, `generated_at`, `updated`, etc.)**: Relocate into the root `extensions` property bag.
-3. **Misplaced Root Payment Carriers (`payTo`, `networks`, `fee`, `access`)**: MUST NOT be copied into `extensions` to silence root schema rejection; they MUST migrate into per-resource `resources[].accepts[]` objects (`recipient`, `network`, and `amount` / `minAmount` / `maxAmount`).
-4. **Duplicate Route Projections (`endpoints[]`, `services[]`)**: Within `/.well-known/x402`, `resources[]` is the single normative route enumeration (§3.4). While relocating a legacy secondary route list into `extensions` is schema-valid (and counts inside the §3.4 compressed-wire budget), hosts SHOULD drop duplicated route enumerations inside `/.well-known/x402`—reducing raw payload size by `~57%` and compressed wire size by **`~35%`** (e.g., on the `2026-10-16T05:19:01Z` 75-route snapshot, `±0.1%` compressed across timestamp refreshes: `35,315 B` $\rightarrow$ `15,150 B` raw and `5,741 B` $\rightarrow$ `3,739 B` `gzip -9` when pretty-printed, or `28,581 B` $\rightarrow$ `12,578 B` raw and `5,545 B` $\rightarrow$ `3,620 B` `gzip -9` when compact-serialized)—and serve any sibling consumer projection at its own dedicated URI (such as `/.well-known/x402-service.json`).
+Accordingly, the specification separates **client acceptance** from **publisher lint strictness** across four root-key cases:
+1. **Client Tolerance of Benign Unknown Root Keys (`additionalProperties: true` at Root)**: Clients MUST ignore unrecognized descriptive root fields during manifest ingestion, while publisher linting (`test_discovery.py`) flags root keys outside `V2_ROOT_KEYS` (`x402Version`, `kind`, `facilitator`, `keys`, `extensions`, `resources`, `openapi`) so publishers relocate descriptive metadata (`name`, `description`, `url`, `docs`, `stats`, `register`, `agentReady`, `generated_at`, `updated`, etc.) and bespoke extension bags (`extra` $\rightarrow$ `extensions`) into the root `extensions` object.
+2. **Schema Rejection of Misplaced Root Payment Carriers (`accepts`, `payTo`, `networks`, `fee`, `access`: `false`)**: Root-level payment carriers create silent shadowing ambiguity against route-level terms and are explicitly forbidden at the document root by the schema (`false` boolean subschemas). Migrating hosts MUST NOT copy misplaced payment carriers into `extensions`; when upgrading to `self-contained` entries, they migrate into per-resource `resources[].accepts[]` objects (`recipient`, `network`, and `amount` / `minAmount` / `maxAmount`).
+3. **Duplicate Route Projections (`endpoints[]`, `services[]`)**: Within `/.well-known/x402`, `resources[]` is the single normative route enumeration (§3.4). While relocating a legacy secondary route list into `extensions` is schema-valid (and counts inside the §3.4 compressed-wire budget), hosts SHOULD drop duplicated route enumerations inside `/.well-known/x402`—reducing raw payload size by `~57%` and compressed wire size by **`~35%`** (e.g., on the `2026-10-16T05:19:01Z` 75-route snapshot, `±0.1%` compressed across timestamp refreshes: `35,315 B` $\rightarrow$ `15,150 B` raw and `5,741 B` $\rightarrow$ `3,739 B` `gzip -9` when pretty-printed, or `28,581 B` $\rightarrow$ `12,578 B` raw and `5,545 B` $\rightarrow$ `3,620 B` `gzip -9` when compact-serialized with `separators=(',', ':')`)—and serve any sibling consumer projection at its own dedicated URI (such as `/.well-known/x402-service.json`).
 
 ```json
 {
