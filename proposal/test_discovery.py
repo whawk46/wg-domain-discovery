@@ -203,8 +203,8 @@ def run_tests():
                 print(f"      - validator='{err.validator}' at path={list(err.path)}: {err.message}")
             sys.exit(1)
 
-    # 3b. Resource Class Discrimination & Client Root-Key Tolerance Checks (§4.2, §4.3, §8.2, §8.3)
-    print("\n--- 2b. RESOURCE CLASS DISCRIMINATION & ROOT TOLERANCE CHECKS ---")
+    # 3b. Resource Class Discrimination, Effective x402Version Inheritance & Repair-Axis Checks (§4.2, §4.3, §8.2, §8.3)
+    print("\n--- 2b. RESOURCE CLASS DISCRIMINATION, VERSION INHERITANCE & REPAIR-AXIS CHECKS ---")
     pointer_and_root_manifest = {
         "x402Version": 2,
         "name": "Example Pointer Service",
@@ -219,6 +219,57 @@ def run_tests():
         print(f"[-] FAIL: pointerResource + benign root keys rejected: {ptr_errors[0].message}")
         sys.exit(1)
     print("[PASS] pointerResource ({url, method, description} + URI string) & benign unknown root keys accepted")
+
+    # Pointer-only manifest without root x402Version (live 402 at target URL governs at runtime)
+    pointer_only_no_root_version = {
+        "resources": [
+            {"url": "https://example.com/x402/proxy/x402-gas", "method": "GET"},
+            "https://example.com/x402/proxy/x402-find"
+        ]
+    }
+    ptr_no_ver_errors = list(validator.iter_errors(pointer_only_no_root_version))
+    if ptr_no_ver_errors:
+        print(f"[-] FAIL: pointer-only manifest without root x402Version rejected: {ptr_no_ver_errors[0].message}")
+        sys.exit(1)
+    print("[PASS] pointer-only manifest without root x402Version accepted (target 402 governs version)")
+
+    # All-inline manifest without root x402Version where every entry carries its own x402Version: 2
+    inline_per_entry_versioned = {
+        "resources": [
+            {
+                "x402Version": 2,
+                "path": "/api/v1/alpha",
+                "accepts": [{"scheme": "exact", "network": "eip155:8453", "amount": "100"}]
+            },
+            {
+                "x402Version": 2,
+                "path": "/api/v1/beta",
+                "accepts": [{"scheme": "exact", "network": "eip155:8453", "amount": "200"}]
+            }
+        ]
+    }
+    inline_ver_errors = list(validator.iter_errors(inline_per_entry_versioned))
+    if inline_ver_errors:
+        print(f"[-] FAIL: per-entry versioned selfContainedResource manifest rejected: {inline_ver_errors[0].message}")
+        sys.exit(1)
+    print("[PASS] selfContainedResource manifest with per-entry x402Version: 2 (no root x402Version) accepted")
+
+    # Root vs. entry x402Version disagreement is an offline conformance error
+    version_disagreement_manifest = {
+        "x402Version": 2,
+        "resources": [
+            {
+                "x402Version": 1,
+                "path": "/api/v1/conflict",
+                "accepts": [{"scheme": "exact", "network": "eip155:8453", "amount": "100"}]
+            }
+        ]
+    }
+    disagree_errors = list(validator.iter_errors(version_disagreement_manifest))
+    if not any(e.validator == "enum" and list(e.path) == ["resources", 0, "x402Version"] for e in disagree_errors):
+        print("[-] FAIL: root/entry x402Version disagreement was not rejected by 'enum' at resources/0/x402Version")
+        sys.exit(1)
+    print("[PASS] root/entry x402Version disagreement deterministically rejected by 'enum' at resources/0/x402Version")
 
     ambiguous_mixed_entry = {
         "x402Version": 2,
@@ -235,6 +286,46 @@ def run_tests():
         print("[-] FAIL: overlapping {path, url, accepts} entry was not rejected by resources[0] additionalProperties")
         sys.exit(1)
     print("[PASS] ambiguous overlapping {path, url, accepts} entry deterministically rejected by 'additionalProperties' at resources/0")
+
+    # Repair-axis attribution derived directly from schema descriptions (zero separate vocabulary drift)
+    def describe_repair_axis(err, instance):
+        path = list(err.path)
+        if path == ["x402Version"] or (len(path) == 3 and path[0] == "resources" and path[2] == "x402Version") or (
+            err.validator == "required" and path == [] and "'x402Version'" in err.message
+        ):
+            return f"axis=version: {err.message} at {'/'.join(str(p) for p in path) or '(root)'}"
+        if err.validator == "not" and path == []:
+            carriers = [
+                sub["required"][0]
+                for sub in err.validator_value.get("anyOf", [])
+                if "required" in sub and sub["required"][0] in instance
+            ]
+            desc = err.schema.get("description", "")
+            return f"axis=misplaced-root-carrier ({', '.join(carriers)}): {desc}"
+        if err.validator == "anyOf" and path == []:
+            branches = err.schema.get("anyOf", [])
+            best_idx = 0
+            best_count = None
+            for idx, branch in enumerate(branches):
+                cnt = len(list(jsonschema.Draft7Validator(branch).iter_errors(instance)))
+                if best_count is None or cnt < best_count:
+                    best_count = cnt
+                    best_idx = idx
+            chosen = branches[best_idx]
+            req = chosen.get("required", [])
+            desc = chosen.get("description", "")
+            return f"axis=document-role (closest branch={req}): {desc}"
+        return f"axis=resource-entry-shape at {'/'.join(str(p) for p in path) or '(root)'}: {err.message}"
+
+    multi_axis_probe = {"x402Version": 2, "payTo": "0xabc", "networks": ["eip155:8453"]}
+    probe_axes = [describe_repair_axis(e, multi_axis_probe) for e in validator.iter_errors(multi_axis_probe)]
+    if not (
+        any("axis=misplaced-root-carrier (payTo, networks)" in a for a in probe_axes)
+        and any("axis=document-role (closest branch=['resources']): Resource servers declare the resources array." in a for a in probe_axes)
+    ):
+        print(f"[-] FAIL: repair-axis attribution did not separate root carrier vs closest anyOf branch: {probe_axes}")
+        sys.exit(1)
+    print("[PASS] repair-axis attribution separates 'misplaced-root-carrier' and closest 'anyOf' branch description verbatim")
 
     # 4. Migration Fixture: legacy incumbent -> x402Version 2 rendition
     print("\n--- 3. MIGRATION FIXTURE (incumbent -> x402Version 2) ---")

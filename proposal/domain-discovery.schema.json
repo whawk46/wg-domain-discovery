@@ -4,14 +4,9 @@
   "title": "x402 Domain Discovery Manifest",
   "description": "Authoritative RFC 8615 well-known domain discovery manifest for x402 payment-enabled origins (/.well-known/x402).",
   "type": "object",
-  "required": [
-    "x402Version"
-  ],
   "properties": {
     "x402Version": {
-      "type": "integer",
-      "enum": [2],
-      "description": "The x402 protocol specification version. Must be 2."
+      "$ref": "#/definitions/protocolVersion"
     },
     "kind": {
       "description": "The operational role of this host in the x402 topology.",
@@ -107,8 +102,39 @@
       "description": "Hosts declaring OpenAPI documentation pointers during the migration phase."
     }
   ],
+  "if": {
+    "not": {
+      "required": ["resources"],
+      "properties": {
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "not": {
+              "type": "object",
+              "anyOf": [
+                { "required": ["path"] },
+                { "required": ["accepts"] }
+              ],
+              "not": {
+                "required": ["x402Version"]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "then": {
+    "required": ["x402Version"]
+  },
   "additionalProperties": true,
   "definitions": {
+    "protocolVersion": {
+      "type": "integer",
+      "enum": [2],
+      "description": "The x402 protocol specification version. Must be 2."
+    },
     "atomicAmount": {
       "type": "string",
       "pattern": "^[0-9]+$",
@@ -190,6 +216,9 @@
         "accepts"
       ],
       "properties": {
+        "x402Version": {
+          "$ref": "#/definitions/protocolVersion"
+        },
         "path": {
           "type": "string",
           "minLength": 1,
@@ -234,6 +263,9 @@
             "url"
           ],
           "properties": {
+            "x402Version": {
+              "$ref": "#/definitions/protocolVersion"
+            },
             "url": {
               "type": "string",
               "format": "uri",
