@@ -59,10 +59,10 @@ Under zero-trust execution, an agent must cryptographically verify that the paym
 Payment discovery MUST resolve through a single authoritative manifest. Hosts MUST NOT require clients to reconcile conflicting or fragmented pricing terms across disparate endpoints. All runtime parameters necessary for an agent to construct an x402 payment challenge response (scheme, network, asset, and price) are declared directly in the manifest.
 
 ### 3.2 Universal Rail Neutrality
-The discovery specification is transport- and settlement-rail agnostic. All supported blockchain networks are declared using canonical [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md) identifiers (e.g. `eip155:8453`, `eip155:14`, `xrpl:0`, `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`, `algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k`). No single chain, token, or virtual machine is given preferential or hardcoded treatment.
+The discovery specification is transport- and settlement-rail agnostic. All supported blockchain networks are declared using canonical [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md) identifiers (e.g. `eip155:8453`, `eip155:14`, `xrpl:0`, `stellar:pubnet`, `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`). No single chain, token, or virtual machine is given preferential or hardcoded treatment.
 
-### 3.3 Cryptographic Ground Truth & DNS Binding
-To prevent man-in-the-middle tampering, reverse-proxy spoofing, and edge-cache poisoning, hosts MAY advertise cryptographic public signing keys (`keys`) within the manifest. Clients verify manifest authenticity against authoritative public DNS TXT ground truth records published at `_x402key.<domain>`.
+### 3.3 Cryptographic Ground Truth, Stateless Off-Chain DNS Binding & Declarative Indexing
+To prevent man-in-the-middle tampering, reverse-proxy spoofing, and edge-cache poisoning, hosts MAY advertise cryptographic public signing keys (`keys`) within the manifest. Clients verify manifest authenticity against authoritative public DNS TXT ground truth records published at `_x402key.<domain>`. Discovery and key verification MUST be executable strictly via standard HTTP GET (`RFC 9110`) and off-chain DNS/DNSSEC resolution (`RFC 4035` / `RFC 8615`) without requiring on-chain smart-contract state reads, ledger RPC queries, or paid on-chain storage/box rent. Discovery indexers and catalogues MUST ingest endpoints declaratively from `/.well-known/x402` and MUST NOT require prior on-chain settlement transactions (`pay-to-list` or merchant self-settlement) as a precondition for indexing.
 
 ### 3.4 Sub-Millisecond Agent Resolution, Compressed-Wire Budgeting & Single Normative Enumeration
 Autonomous agents operate on tight latency budgets. For manifests in the **self-contained** resource class (`{path, accepts}`), a canonical `/.well-known/x402` manifest resolves in a single fetch governed by three empirical scaling rules:
@@ -168,7 +168,7 @@ When manifest verification or challenge authentication is enforced:
 
 1. **Cold Discovery**: The agent fetches `https://<domain>/.well-known/x402`.
 2. **Deterministic Evaluation**: The agent parses the single JSON object and filters `resources` for the desired URI path.
-3. **Payment Option Negotiation**: For a `self-contained` entry (`{path, accepts}`), the agent matches its available settlement capabilities (e.g. EVM, Flare, XRPL, Solana, Algorand) directly against the resource's inline `accepts` array. For a `pointer` entry (`{url, method?}`), the agent sends a probe request to `url` to retrieve the live HTTP `402` challenge terms.
+3. **Payment Option Negotiation**: For a `self-contained` entry (`{path, accepts}`), the agent matches its available settlement capabilities (e.g. EVM, Flare, XRPL, Stellar, Solana) directly against the resource's inline `accepts` array. For a `pointer` entry (`{url, method?}`), the agent sends a probe request to `url` to retrieve the live HTTP `402` challenge terms.
 4. **Execution**: The agent issues the monetized request with the corresponding x402 payment payload, eliminating preliminary HTTP 402 challenge roundtrips whenever `self-contained` entries are published.
 
 ---
